@@ -8,6 +8,8 @@
 #include "RTClib.h"
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
+#include "logger_proc.h"
+
 
 // #-----------------------
 // # RTC, i2c bus:
@@ -20,7 +22,7 @@
 // # D10: SS    -> CS
 // #-----------------------
 
-#define MENU_ITEMS 7
+#define MENU_ITEMS 6
 
 // RTC
 RTC_DS1307 RTC;
@@ -38,68 +40,28 @@ int prevMin = 0;
 // =====================================
 // SD card
 const int8_t DISABLE_CS_PIN = 10;
-#define SD_FAT_TYPE 1
-
-// SDCARD_SS_PIN is defined for the built-in SD on some boards.
-#ifndef SDCARD_SS_PIN
-const uint8_t SD_CS_PIN = SS;
-#else  // SDCARD_SS_PIN
-const uint8_t SD_CS_PIN = SDCARD_SS_PIN;
-#endif  // SDCARD_SS_PIN
-
-// Try to select the best SD card configuration.
-#if HAS_SDIO_CLASS
-#define SD_CONFIG SdioConfig(FIFO_SDIO)
-#elif ENABLE_DEDICATED_SPI
-#define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI)
-#else  // HAS_SDIO_CLASS
-#define SD_CONFIG SdSpiConfig(SD_CS_PIN, SHARED_SPI)
-#endif  // HAS_SDIO_CLASS
-
 
 SSD1306AsciiWire oled;
 
 // 
-int i_state = 0;
+String s_rx_data;
 bool b_redraw = true;
-bool b_key_pressed = false;
 int height_font;
 int width_font;
-int num_files = 0;
 byte pinV = A1; // Para leer el voltaje
 byte pinKey = A0; // Para leer el teclado
 int a0_level = 0;
 int last_a0_level = 0;
-byte i_key = 0;
 byte i_last_key = 0;
-int bat = 0;  //Porcentaje
+String s_bat_info = "0%";  //Porcentaje
+String s_sd_info = "0/0MB";
 byte menu_current = 0;
 byte debounce_counter = 255;  //OFF
 
-// file system object
-SdFat32 sd;
-File32 dir;
-File32 file;
-
-File logfile;
+LoggerProc logger(oled);
 
 // Store error strings in flash to save RAM.
 //#define error(s) sd.errorHalt(&Serial, F(s))
-
-int CountFiles() {
-  int k = 0;
-  while (file.openNext(&dir, O_RDONLY)) {
-    //file.printName(&Serial);
-    if (file.isDir() == false) {
-      k++;
-    }
-    
-    //Serial.println();
-    file.close();
-  }
-  //Serial.println(k);
-  return k;
-} 
 
 void setup() {
   Serial.begin(115200); 
@@ -134,49 +96,12 @@ void setup() {
     Serial.println(F("RTC is NOT running!"));
   }
   //RTC.adjust(DateTime(__DATE__, __TIME__));
+
+  //pinMode(chipSelect, OUTPUT);        // SD card pin select
   
   // SD card setup
-  //pinMode(chipSelect, OUTPUT);        // SD card pin select
-  if (!sd.begin(SD_CONFIG)) {
-    oled.setCursor(0,3);
-    oled.print(F("     SD Error!    "));
-    sd.initErrorHalt(&Serial);
-  }
-  // Open root directory
-  if (!dir.open("/")){
-    //error("dir.open failed");
-    oled.setCursor(0,3);
-    oled.print(F("dir.open failed!"));
-    sd.initErrorHalt(&Serial);
-  }
-    
-  num_files = CountFiles();
-  
- /* // Creamos el fichero de registro
-  char filename[] = "LOGGER00.CSV";
-  for (uint8_t i = 0; i < 100; i++) 
-     {  
-        filename[6] = i/10 + '0';
-        filename[7] = i%10 + '0';
-        if (! SD.exists(filename))      // Si no existe el fichero, lo creamos
-            { 
-              logfile = SD.open(filename, FILE_WRITE); 
-              break;  // leave the loop!
-            }
-     }
-  if (! logfile) 
-      error("No se pudo crear el fichero de registro");
-  else
-  {
-    Serial.print("Registrando en: ");   
-    Serial.println(filename);
-  
-    logfile.print("Fecha/Hora") ; 
-    logfile.print(", "); 
-    logfile.print("Temp") ; 
-    logfile.print(", ");
-    logfile.println("Humedad") ; 
-  }*/
+  logger.Config();  
+ 
   initial_draw();
   width_font = oled.fontWidth();
   Serial.print("width_font:");Serial.print(width_font); Serial.print("\n");
@@ -206,26 +131,28 @@ void readVoltaje()
   // Lee el voltaje
   int medida = analogRead(pinV);
   float voltaje = medida * 5.0 / 1023.0;
-  bat = 0;
-  if (voltaje > 4.2)
+  int bat = 0;
+  if (voltaje > 4.1)
   {
     bat = 100;
   }
   else if (voltaje > 3.2)
   {
-    bat = 100 * (voltaje - 3.2);
+    bat = 111.1 * (voltaje - 3.2);  // m=100/0.9
   }
   else
   {
     bat = 0;
   }
+  s_bat_info  = "B:"+ String(bat) + "%";
   // Serial.print("Medida: ");Serial.print(medida);Serial.print('\n');
   // Serial.print("Voltaje: ");Serial.println(voltaje);Serial.print('\n');
 }
 
 // This function is called each 10ms
-void getKey()
+bool getKey(byte &i_key)
 {
+  bool b_key_pressed = false;
   a0_level = analogRead(pinKey);
   i_key = buttonFromValue(a0_level);
   if (i_key != i_last_key)
@@ -250,12 +177,12 @@ void getKey()
     }
     if (debounce_counter == 0)
     {
-      b_redraw = true;
       b_key_pressed = true;
       //Serial.print("Key: ");Serial.print(a0_level);Serial.print("-");Serial.println(i_key);
       debounce_counter = 255;
     }
   }
+  return b_key_pressed;
 }
 void loop() {
   //digitalWrite(LED_BUILTIN, HIGH);
@@ -295,47 +222,43 @@ void loop() {
   // Process the keyboard
   if ((currentMillis % 10) == 0)
   {
-    getKey();
+    byte i_key;
+    bool const b_key_pressed = getKey(i_key);
+    if (b_key_pressed)
+    {
+      logger.set_key(i_key);
+      b_redraw = true;
+    }
+  }
+  if (logger.get_logging())
+  {
+    if (Serial.available() > 0) 
+    {
+      char const ch= Serial.read() ;
+      if (ch == '\n')
+      {
+        logger.write(s_rx_data);
+        Serial.println(s_rx_data);
+        s_rx_data = "";
+        b_redraw = true;
+      }
+      else
+      {
+        if(s_rx_data.length() == 0)
+        {
+          s_rx_data = String(now.unixtime()); // seconds since 1/1/1970
+          s_rx_data.concat(',');
+        }
+        s_rx_data.concat(ch);
+      }
+    }
   }
   
-  // Maquina de estado
-  switch (i_state)
-  {
-    case 0:   // IDLE
-    {
-      if (b_key_pressed)
-      {
-        if (i_key == 3) // DOWN
-        {
-          menu_current ++;
-          if (menu_current == MENU_ITEMS)
-          {
-            menu_current = 0;
-          }
-        }
-        else if (i_key == 1) // UP
-        {
-          if (menu_current == 0)
-          {
-            menu_current = MENU_ITEMS;
-          }
-          menu_current --;
-        }
-        b_key_pressed = false;
-      }
-      break;
-    }
-    case 1: //
-    {
-      break;
-    }
-  }
+  logger.StateMachine();
  
   // Redraw
-  if (b_redraw == true)
+  if (b_redraw)
   {
-    //DateTime now = RTC.now();
-    //printDateTime(now);
     String s = time2string(now);
     s.toCharArray(s_current_time, s.length() + 1);
     // picture loop

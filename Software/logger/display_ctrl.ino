@@ -1,6 +1,6 @@
 
-const char *menu_strings[MENU_ITEMS] = { "START", "FILE", "CFG", "4", "5", "6", "7" };
-const char *label_strings[4] = { "STOP", "Num.Files:", "|", "B:100%"};
+const char *menu_strings[6] = { "START", "YES", "STOP", "4", "5", "6" };
+const char *label_strings[3] = { "STOP", "Num.Files:", "|"};
 
 String time2csv() {
   DateTime now = RTC.now();
@@ -15,24 +15,7 @@ String time2string(DateTime now) {
   return d;
 }
 
-/*void draw_menu_0(void) {
-  uint8_t i, h;
-  u8g_uint_t w, d;
-  u8g.setFont(u8g_font_6x13);
-  u8g.setFontRefHeightText();
-  u8g.setFontPosTop();
-  h = u8g.getFontAscent()-u8g.getFontDescent();
-  w = u8g.getWidth();
-  for( i = 0; i < MENU_ITEMS; i++ ) {        // draw all menu items
-    d = (w-u8g.getStrWidth(menu_strings[i]))/2;
-    u8g.setDefaultForegroundColor();
-    if ( i == menu_current ) {               // current selected menu item
-      u8g.drawBox(0, i*h+1, w, h);     // draw cursor bar
-      u8g.setDefaultBackgroundColor();
-    }
-    u8g.drawStr(d, i*h, menu_strings[i]);
-  }
-}*/
+// FUNCTION
 void initial_draw(void) {
   oled.setFont(lcd5x7);
   // 8 lines
@@ -40,80 +23,9 @@ void initial_draw(void) {
   height_font = oled.fontRows();
   
   oled.clear();
-  
-  //MENU
-  for (int x=0; x != MENU_ITEMS; ++x)
-  {
-    oled.setRow(x + 1);
-    oled.setCol(90);
-    oled.println(label_strings[2]);
-  }
-  for (int x=0; x != MENU_ITEMS; ++x)
-  {
-    oled.setRow(x + 1);
-    oled.setCol(98);
-    if (x == 0)
-    {
-      oled.setInvertMode(1);
-    }
-    else
-    {
-      oled.setInvertMode(0);
-    }
-    oled.println(menu_strings[x]);
-  }
-
-  //List of files
-  // Open root directory
-  /*if (!dir.open("/")){
-    error("dir.open failed");
-  }
-  // Open next file in root.
-  // Warning, openNext starts at the current position of dir so a
-  // rewind may be necessary in your application.
-  num_files = 0;
-  while (file.openNext(&dir, O_RDONLY)) {
-    file.printFileSize(&Serial);
-    Serial.write(' ');
-    file.printModifyDateTime(&Serial);
-    Serial.write(' ');
-    //file.printName(&Serial);
-    if (file.isDir()) {
-      // Indicate a directory.
-      Serial.write('/');
-    }
-    else
-    {
-      if (num_files < 6)
-      {
-        oled.setRow(num_files + 1); //
-        char f_name[50];
-        file.getName(&f_name[0], 50);
-        oled.println(&f_name[0]);
-      }
-      num_files++;
-    }
-    Serial.println();
-    file.close();
-  }
-  if (dir.getError()) {
-    Serial.println("openNext failed");
-  } else {
-    Serial.println("Done!");
-    Serial.println(num_files);
-  }*/
-  // Bat
-  oled.setRow(0); 
-  oled.setCol(90);  //px
-  oled.println(label_strings[3]);
-  
-  // Num files
-  oled.setRow(7); //line 7
-  oled.println(label_strings[1]);
-  oled.setCol(65);  //px
-  oled.print(num_files);
 }
 
+// 
 void clearField(int row, int x, int w)
 {
   int r = row*height_font;
@@ -121,47 +33,52 @@ void clearField(int row, int x, int w)
 }
 
 void draw(void) {
-  // print the time
+  Serial.println("Draw---"),
+  // print the time =======================
   //int w = oled.strWidth(s_current_time);
   //Serial.println(w);
   //clearField(0, 0, w);
   oled.clearField(0, 0, 14);  // 14 caracteres fijos
   oled.print(s_current_time);
-  //
-  //oled.setCursor(100,0);
-  //oled.print("|");
+  //==========================================
 
-  
-  if (i_state == 0)
+  // STATE ====================
+  oled.clearField(85, 0, 20);  // 14 caracteres fijos
+  oled.print(logger.get_label());
+
+  // FILE NAME ==================
+  oled.clearField(0, 1, 100); 
+  oled.println(logger.get_filename()); 
+  oled.clear(0, 128, 2, 6);
+  if (logger.get_logging())
   {
-    for (int x=0; x != MENU_ITEMS; ++x)
+    String cad1 = F("Num: "); 
+    cad1.concat(logger.get_num_data());
+    oled.println(cad1);
+    String cad2 = F("Size: "); 
+    float len = logger.get_length();
+    String units = F("B");
+    if (len > 1000000)
     {
-      oled.setRow(x + 1);
-      oled.setCol(98);
-      if (x == menu_current)
-      {
-        oled.setInvertMode(1);
-      }
-      else
-      {
-        oled.setInvertMode(0);
-      }
-      oled.print(menu_strings[x]);
+      len = len / 1000000.0;
+      units = F("MB");
     }
-  }else if (i_state == 1)
-  {
-    
+    else if (len > 1000)
+    {
+      len = len / 1000.0;
+      units = F("KB");
+    }
+      
+    cad2.concat(len);
+    cad2.concat(units);
+    oled.println(cad2);
   }
-  else
-  {
-  }
-  oled.setInvertMode(0);
-  
-  // Keyboard
-  //oled.clearField(25, 5, 4);  // 
-  //oled.println(i_key);
-  // Bat
-  oled.clearField(101, 0, 3);  // 
-  oled.print(bat);
-  
+
+  // Bat ============================
+  oled.clearField(0, 7, 29);  // COL=0, FIL=7, N=30
+  oled.print(s_bat_info);
+  // Size SD card =================
+  oled.clearField(35, 7, 70);  // COL=40, FIL=7, N=50
+  String s_sd_info = logger.get_sd_info();
+  oled.print(s_sd_info);
 }
