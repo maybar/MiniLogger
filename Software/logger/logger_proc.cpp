@@ -33,6 +33,15 @@ String LoggerProc::get_sd_info()
 {
   return m_s_card_size;
 }
+void LoggerProc::calculate_sd_info()
+{
+  float const f_card_size = m_c_sd.card()->cardSize() * 0.000512;
+  char tbs[50];
+  float const used = f_card_size - m_c_sd.vol()->freeClusterCount() * m_c_sd.vol()->blocksPerCluster() * 0.000512;
+  unsigned int const i_perc = (unsigned int)((unsigned int)used / (unsigned int)f_card_size);
+  sprintf(tbs, "S:%d.%02dMB(%d%%)", (unsigned int)used, (unsigned int)(used * 100.0) % 100, i_perc);
+  m_s_card_size = String(tbs);
+}
 void LoggerProc::Config(void)
 {
   if (!m_c_sd.begin(SD_CONFIG)) {
@@ -47,12 +56,7 @@ void LoggerProc::Config(void)
     m_c_display.print(F("dir.open failed!"));
     m_c_sd.initErrorHalt(&Serial);
   }
-  float const f_card_size = m_c_sd.card()->cardSize() * 0.000512;
-  char tbs[50];
-  float const used = f_card_size - m_c_sd.vol()->freeClusterCount() * m_c_sd.vol()->blocksPerCluster() * 0.000512;
-  unsigned int const i_perc = (unsigned int)((unsigned int)used / (unsigned int)f_card_size);
-  sprintf(tbs, "S:%d.%02dMB(%d%%)", (unsigned int)used, (unsigned int)(used * 100.0) % 100, i_perc);
-  m_s_card_size = String(tbs);
+  this->calculate_sd_info();
 }
 
 int LoggerProc::CountFiles() {
@@ -97,7 +101,20 @@ void LoggerProc::start_logging()
         }
   }
   if (! m_logfile) 
+  {
       Serial.print(F("No se pudo crear el fichero de registro"));
+      m_i_logger_sm = 0;
+      m_s_display = F("ERROR");
+
+      m_c_display.setCursor(0, 3);
+      m_c_display.print(F("Max 100 files!"));
+    
+      File errorfile = m_c_sd.open("error.txt", FILE_WRITE);
+      errorfile.println(F("It couldn't be created the record file!")); 
+      errorfile.println(F("Limit reached. Max 100 files.")); 
+      errorfile.flush();
+      errorfile.close();
+  }
   else {
     m_b_logging = true;
     m_s_filename = String(filename);
@@ -110,6 +127,7 @@ void LoggerProc::stop_logging()
 {
   m_logfile.close();
   m_b_logging = false;
+  this->calculate_sd_info();
 }
 
 String LoggerProc::get_filename()

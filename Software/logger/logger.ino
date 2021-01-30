@@ -1,5 +1,7 @@
 // #-----------------------
 // #BOARD: MINI LOGGER
+// Placa: Arduino Pro or Pro Mini
+// Procesasdor: ATMega328P (5V 16MHz)
 // #-----------------------
 #include "SdFat.h"
 #include "sdios.h"
@@ -197,16 +199,6 @@ void loop() {
     readVoltaje();
     b_redraw = true;
   }
-  
-  
-  // Logfile
-  /*logfile.print(now.unixtime()); // seconds since 1/1/1970
-  logfile.print(", ");
-  logfile.print("1");
-  logfile.print(", ");
-  logfile.println("2");
-  logfile.flush();              // Para forzar la escritura en la SD
-*/
   
   //Serial.println();
   

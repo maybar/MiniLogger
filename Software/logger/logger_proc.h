@@ -27,6 +27,7 @@ class LoggerProc
 	private:
   void start_logging();
   void stop_logging();
+  void calculate_sd_info();
   
 		int m_i_logger_sm;
 	  SdFat32 m_c_sd; // file system object
