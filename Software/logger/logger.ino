@@ -3,8 +3,6 @@
 // Placa: Arduino Pro or Pro Mini
 // Procesasdor: ATMega328P (5V 16MHz)
 // #-----------------------
-#include "SdFat.h"
-#include "sdios.h"
 #include <SPI.h>
 #include <Wire.h>
 #include "RTClib.h"
@@ -62,9 +60,6 @@ byte debounce_counter = 255;  //OFF
 
 LoggerProc logger(oled);
 
-// Store error strings in flash to save RAM.
-//#define error(s) sd.errorHalt(&Serial, F(s))
-
 void setup() {
   Serial.begin(115200); 
   delay(200);
@@ -92,7 +87,7 @@ void setup() {
   if (!RTC.begin()) 
       Serial.println(F("No hay RTC."));   
   else
-      Serial.println(F("RTC correcto. Iniciando captura de datos"));      
+      Serial.println(F("RTC correcto"));      
   if (! RTC.isrunning()) 
   {
     Serial.println(F("RTC is NOT running!"));
@@ -102,11 +97,11 @@ void setup() {
   //pinMode(chipSelect, OUTPUT);        // SD card pin select
   
   // SD card setup
-  logger.Config();  
+  logger.Config(DISABLE_CS_PIN);  
  
   initial_draw();
   width_font = oled.fontWidth();
-  Serial.print("width_font:");Serial.print(width_font); Serial.print("\n");
+  //Serial.print("width_font:");Serial.print(width_font); Serial.print("\n");
 }
 
 // Returns the button number based on the analog value
@@ -114,20 +109,18 @@ byte buttonFromValue(int adValue) {
   if (adValue > 1000) {
     return 1;
   }
-
   else if (adValue > 800) {
     return 2;
   }
-
   else if (adValue > 600) {
     return 3;
   }
-
   else{
     return 0;
   }
 }
 
+// FUNCTION: Read the level of the battery
 void readVoltaje()
 {
   // Lee el voltaje
@@ -147,8 +140,6 @@ void readVoltaje()
     bat = 0;
   }
   s_bat_info  = "B:"+ String(bat) + "%";
-  // Serial.print("Medida: ");Serial.print(medida);Serial.print('\n');
-  // Serial.print("Voltaje: ");Serial.println(voltaje);Serial.print('\n');
 }
 
 // This function is called each 10ms
@@ -186,8 +177,9 @@ bool getKey(byte &i_key)
   }
   return b_key_pressed;
 }
+
+// MAIN LOOP
 void loop() {
-  //digitalWrite(LED_BUILTIN, HIGH);
   DateTime now = RTC.now();    
   int i_sec = now.second();
   int i_min = now.minute();
@@ -199,10 +191,6 @@ void loop() {
     readVoltaje();
     b_redraw = true;
   }
-  
-  //Serial.println();
-  
-  //digitalWrite(LED_BUILTIN, LOW);
  
 
   // Refresca por defecto cada segundo
@@ -216,17 +204,22 @@ void loop() {
   {
     byte i_key;
     bool const b_key_pressed = getKey(i_key);
+    // When key is pressed, send the cmd to the logger
     if (b_key_pressed)
     {
       logger.set_key(i_key);
       b_redraw = true;
     }
   }
+
+  // If logger is recording
   if (logger.get_logging())
   {
-    if (Serial.available() > 0) 
+    // If some data in the reception buffer
+    while (Serial.available() > 0) 
     {
       char const ch= Serial.read() ;
+      // When ENTER is received, the data is stored
       if (ch == '\n')
       {
         logger.write(s_rx_data);
@@ -236,6 +229,7 @@ void loop() {
       }
       else
       {
+        // Set the time stamp
         if(s_rx_data.length() == 0)
         {
           s_rx_data = String(now.unixtime()); // seconds since 1/1/1970
@@ -243,9 +237,10 @@ void loop() {
         }
         s_rx_data.concat(ch);
       }
-    }
-  }
-  
+    }//while
+  }// if logging
+
+  // Move the Logger state machine
   logger.StateMachine();
  
   // Redraw
@@ -259,22 +254,7 @@ void loop() {
   }
 }
 
-void printDateTime(const DateTime& now)
-{
-    Serial.print(now.year(), DEC);
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(' ');
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');    Serial.print(now.second(), DEC);
-    Serial.println();
-}
-
-
+// Show error and stop de application
 void error(char *str)
 {
   Serial.print(F("error: "));

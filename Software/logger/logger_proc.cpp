@@ -9,14 +9,7 @@ const uint8_t SD_CS_PIN = SS;
 const uint8_t SD_CS_PIN = SDCARD_SS_PIN;
 #endif  // SDCARD_SS_PIN
 
-// Try to select the best SD card configuration.
-#if HAS_SDIO_CLASS
-#define SD_CONFIG SdioConfig(FIFO_SDIO)
-#elif ENABLE_DEDICATED_SPI
-#define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI)
-#else  // HAS_SDIO_CLASS
-#define SD_CONFIG SdSpiConfig(SD_CS_PIN, SHARED_SPI)
-#endif  // HAS_SDIO_CLASS
+
 
 LoggerProc::LoggerProc(SSD1306AsciiWire & oled)
 {
@@ -31,48 +24,83 @@ LoggerProc::LoggerProc(SSD1306AsciiWire & oled)
 
 String LoggerProc::get_sd_info()
 {
-  return m_s_card_size;
+  return m_s_card_info;
+}
+
+int LoggerProc::get_used()
+{
+  int used = 0;
+  while (true) {
+    File entry =  m_c_dir.openNextFile();
+    if (! entry) {
+      // no more files
+      //Serial.println("no more files");
+      m_c_dir.rewindDirectory();
+      break;
+    }
+    Serial.print(entry.name());
+    if (entry.isDirectory() == false) {
+      // files have sizes, directories do not
+      //Serial.print("\t\t");
+      //Serial.println(entry.size(), DEC);
+      used += entry.size();
+    }
+    entry.close();
+  }
+  return used;
 }
 void LoggerProc::calculate_sd_info()
 {
-  float const f_card_size = m_c_sd.card()->cardSize() * 0.000512;
   char tbs[50];
-  float const used = f_card_size - m_c_sd.vol()->freeClusterCount() * m_c_sd.vol()->blocksPerCluster() * 0.000512;
-  unsigned int const i_perc = (unsigned int)((unsigned int)used / (unsigned int)f_card_size);
-  sprintf(tbs, "S:%d.%02dMB(%d%%)", (unsigned int)used, (unsigned int)(used * 100.0) % 100, i_perc);
-  m_s_card_size = String(tbs);
+  float used = get_used();  // bytes
+  float const used_mb = (float)used/1048576.0;  //MB
+  Serial.println(used);
+  unsigned int const i_perc = (unsigned int)((unsigned int)used_mb / (unsigned int)m_f_card_size);
+  if (used < 1024.0)
+  {
+    sprintf(tbs, "S:%dB(%d%%)", (unsigned int)used, i_perc);
+  }
+  else if (used < 1048576.0)
+  {
+    used = (float)used / 1024.0;
+    sprintf(tbs, "S:%d.%02dKB(%d%%)", (unsigned int)used, (unsigned int)(used * 100.0) % 100, i_perc);
+  }
+  else
+  {
+    sprintf(tbs, "S:%d.%02dMB(%d%%)", (unsigned int)used_mb, (unsigned int)(used_mb * 100.0) % 100, i_perc);
+  }
+  m_s_card_info = String(tbs);
+  Serial.println(m_s_card_info);
 }
-void LoggerProc::Config(void)
+void LoggerProc::Config(int chipSelect)
 {
-  if (!m_c_sd.begin(SD_CONFIG)) {
+  if (!SD.begin(chipSelect)) {
+    Serial.println("initialization failed!");
+    while (1);
+  }
+  m_c_dir = SD.open("/");
+  
+  if (!m_c_sd.init(SPI_HALF_SPEED, chipSelect)) {
     m_c_display.setCursor(0, 3);
     m_c_display.print(F("     SD Error!    "));
-    m_c_sd.initErrorHalt(&Serial);
+    while (1);
   }
-  // Open root directory
-  if (!m_c_dir.open("/")) {
-    //error("dir.open failed");
+  // Now we will try to open the 'volume'/'partition' - it should be FAT16 or FAT32
+  if (!m_c_volume.init(m_c_sd)) {
+    Serial.println(F("Could not find FAT16/FAT32 partition.\nMake sure you've formatted the card"));
     m_c_display.setCursor(0, 3);
-    m_c_display.print(F("dir.open failed!"));
-    m_c_sd.initErrorHalt(&Serial);
+    m_c_display.print(F("Volume.init failed!"));
+    while (1);
   }
+  uint32_t volumesize = m_c_volume.blocksPerCluster();    // clusters are collections of blocks
+  volumesize *= m_c_volume.clusterCount();       // we'll have a lot of clusters
+  volumesize /= 2;                           // SD card blocks are always 512 bytes (2 blocks are 1KB)
+  m_f_card_size = (float)volumesize/1024.0;                           // MB
+  Serial.println(m_f_card_size);
+  
   this->calculate_sd_info();
 }
 
-int LoggerProc::CountFiles() {
-  int k = 0;
-  while (m_c_file.openNext(&m_c_dir, O_RDONLY)) {
-    //file.printName(&Serial);
-    if (m_c_file.isDir() == false) {
-      k++;
-    }
-    
-    //Serial.println();
-    m_c_file.close();
-  }
-  //Serial.println(k);
-  return k;
-} 
 void LoggerProc::set_key(byte key)
 {
   m_i_key = key;
@@ -94,9 +122,9 @@ void LoggerProc::start_logging()
   {  
     filename[6] = i/10 + '0';
     filename[7] = i%10 + '0';
-    if (! m_c_sd.exists(filename))      // Si no existe el fichero, lo creamos
+    if (! SD.exists(filename))      // Si no existe el fichero, lo creamos
         { 
-          m_logfile = m_c_sd.open(filename, FILE_WRITE); 
+          m_logfile = SD.open(filename, FILE_WRITE); 
           break;  // leave the loop!
         }
   }
@@ -109,11 +137,11 @@ void LoggerProc::start_logging()
       m_c_display.setCursor(0, 3);
       m_c_display.print(F("Max 100 files!"));
     
-      File errorfile = m_c_sd.open("error.txt", FILE_WRITE);
+      /*File errorfile = SD.open("error.txt", FILE_WRITE);
       errorfile.println(F("It couldn't be created the record file!")); 
       errorfile.println(F("Limit reached. Max 100 files.")); 
       errorfile.flush();
-      errorfile.close();
+      errorfile.close();*/
   }
   else {
     m_b_logging = true;
@@ -157,7 +185,6 @@ void LoggerProc::StateMachine()
         if (m_i_key == 3)
         {
           m_i_logger_sm = 2;
-          this->start_logging();
           m_s_display = F("LOGGING");
         }
       }
@@ -172,7 +199,6 @@ void LoggerProc::StateMachine()
         if (m_i_key == 3)
         {
           m_i_logger_sm = 0;
-          this->stop_logging();
           m_s_display = F("LOG OFF");
         }
       }

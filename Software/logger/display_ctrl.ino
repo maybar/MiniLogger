@@ -33,7 +33,7 @@ void clearField(int row, int x, int w)
 }
 
 void draw(void) {
-  Serial.println("Draw---"),
+  //Serial.println("Draw---"),
   // print the time =======================
   //int w = oled.strWidth(s_current_time);
   //Serial.println(w);

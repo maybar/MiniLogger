@@ -1,20 +1,19 @@
 #ifndef LoggerProc_h
 #define LoggerProc_h
 
-#include "SdFat.h"
+#include "SD.h"
 #include "SSD1306AsciiWire.h"
 
 class LoggerProc
 {
 	public:
 	LoggerProc(SSD1306AsciiWire & oled);
-  void Config(void);
+  void Config(int chipSelect);
 	void StateMachine();
 	//Open(char *s_filename, char *s_header);
 	//Write(char *s_data);
 	//Close();
   int getState();
-  int CountFiles();
   String get_sd_info();
   bool get_logging();
   void set_key(byte key);
@@ -28,13 +27,17 @@ class LoggerProc
   void start_logging();
   void stop_logging();
   void calculate_sd_info();
+  int get_used();
   
 		int m_i_logger_sm;
-	  SdFat32 m_c_sd; // file system object
-    File32 m_c_dir;
-    File32 m_c_file;
+	  Sd2Card m_c_sd; // file system object
+    SdVolume m_c_volume;
+    //SdFile m_c_root;
+    File m_c_dir;
+    File m_c_file;
     SSD1306AsciiWire m_c_display;
-    String m_s_card_size;
+    float m_f_card_size;
+    String m_s_card_info;
     byte m_i_key;
     bool m_b_logging;
     String m_s_display;
